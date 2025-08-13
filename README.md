@@ -1,56 +1,131 @@
-# Food Facilities Challenge
+# Mobile Food Facilities API
 
-Use this data set about Mobile Food Facilities in San Francisco (https://data.sfgov.org/Economy-and-Community/Mobile-Food-Facility-Permit/rqzj-sfat/data) to build an application. Please clarify with your recruiter first if you will be doing the Backend Focused or Frontend Focused version of the project, and what language you will be doing the challenge in. Make sure this is clear before you start this challenge.
+This project is a FastAPI-based application that provides an API to query mobile food facility permits in San Francisco. It uses the dataset from [San Francisco's Mobile Food Facility Permit](https://data.sfgov.org/Economy-and-Community/Mobile-Food-Facility-Permit/rqzj-sfat/data) to enable searching and filtering of food trucks based on specific criteria.
 
-**Backend Focused Version**
+## Features
 
-Your Application should have the following features:
-- Search by name of applicant. Include optional filter on "Status" field.
-- Search by street name. The user should be able to type just part of the address. Example: Searching for "SAN" should return food trucks on "SANSOME ST"
-- Given a latitude and longitude, the API should return the 5 nearest food trucks. By default, this should only return food trucks with status "APPROVED", but the user should be able to override this and search for all statuses.
-  - You can use any external services to help with this (e.g. Google Maps API).
-- We write automated tests and we would like you to do so as well.
+The API provides the following endpoints:
 
-*Bonus Points:*
-- Use an API documentation tool
-- Provide a dockerfile with everything necessary to run your application (for backend focused candidates)
-- Build a UI
+1. **Search by Applicant Name**:
+   - Endpoint: `GET /search/applicant`
+   - Description: Search for food facilities by partial or full applicant name (case-insensitive). Optionally filter by status (e.g., "APPROVED", "REQUESTED").
+   - Query Parameters:
+     - `name` (required): Full or partial applicant name.
+     - `status` (optional): Filter by status (case-insensitive, e.g., "APPROVED").
+   - Example: `GET /search/applicant?name=tasty&status=APPROVED`
 
-**Frontend Focused Version**
+2. **Search by Street Name**:
+   - Endpoint: `GET /search/street`
+   - Description: Search for food facilities by partial or full street name in the address field (case-insensitive). For example, searching "SAN" will match "SANSOME ST".
+   - Query Parameters:
+     - `street` (required): Full or partial street name.
+   - Example: `GET /search/street?street=SAN`
 
-Your application should have the following features:
-- Search by name of applicant. Include optional filter on "Status" field.
-- Search by street name. The user should be able to type just part of the address. Example: Searching for "SAN" should return food trucks on "SANSOME ST"
-- Build a UI using a frontend framework like React. You have creative freedom to design the UI however you would like.
+3. **Find Nearest Food Trucks**:
+   - Endpoint: `GET /search/nearest`
+   - Description: Find the 5 nearest food facilities to a given latitude and longitude, using the Haversine formula to calculate great-circle distances in miles. By default, only returns facilities with "APPROVED" status, but can include all statuses if specified. Invalid or zero coordinates are filtered out.
+   - Query Parameters:
+     - `latitude` (required): Latitude of the reference point.
+     - `longitude` (required): Longitude of the reference point.
+     - `all_statuses` (optional, default: `false`): If `true`, includes facilities with any status; otherwise, only "APPROVED".
+   - Example: `GET /search/nearest?latitude=37.7790&longitude=-122.4010&all_statuses=true`
 
-*Bonus points:*
-- Write automated tests
-- Use an API documentation tool
-- Build the other features listed in the Backend Focused Version
+## Prerequisites
 
-## README
+To run this project, you need:
 
-Your code should include a README file including the following items:
+- **Docker**: To build and run the containerized application.
+- **Python 3.9+** (if running locally without Docker).
+- The `Mobile_Food_Facility_Permit.csv` file, which contains the dataset (included in the repository).
 
-- Description of the problem and solution;
-- Reasoning behind your technical/architectural decisions
-- Critique section:
-  - What would you have done differently if you had spent more time on this?
-  - What are the trade-offs you might have made?
-  - What are the things you left out?
-  - What are the problems with your implementation and how would you solve them if we had to scale the application to a large number of users?
-- Please document any steps necessary to run your solution and your tests.
+## Setup and Running the Application
 
-## How we review
+### Using Docker
 
-We value quality over feature-completeness. It is fine to leave things aside provided you call them out in your project's README.
-The aspects of your code we will assess include:
+1. **Build the Docker Image**:
+   From the folder containing `Dockerfile` and `main.py`, run:
+   ```bash
+   docker build -t food-facilities-api .
+   ```
 
-- Clarity: does the README clearly and concisely explains the problem and solution? Are technical tradeoffs explained?
-- Correctness: does the application do what was asked? If there is anything missing, does the README explain why it is missing?
-- Code quality: is the code simple, easy to understand, and maintainable? Are there any code smells or other red flags? Does object-oriented code follows principles such as the single responsibility principle? Is the coding style consistent with the language's guidelines? Is it consistent throughout the codebase?
-- Security: are there any obvious vulnerabilities?
-- Technical choices: do choices of libraries, databases, architecture etc. seem appropriate for the chosen application?
+2. **Run the Container**:
+   Run the container and expose port 8000:
+   ```bash
+   docker run --rm -p 8000:8000 food-facilities-api
+   ```
 
-## What to send back to our team
-Please send an email back to your point of contact with a compressed (zip) file of your Github project repo when done.
+   The API will be available at `http://localhost:8000`.
+
+### Running Locally (Without Docker)
+
+1. **Install Dependencies**:
+   Ensure Python 3.9+ is installed, then install the required packages:
+   ```bash
+   pip install "fastapi[standard]>=0.112" "pandas>=2.2,<3" "numpy>=1.26,<2"
+   ```
+
+2. **Run the Application**:
+   With `main.py` and `Mobile_Food_Facility_Permit.csv` in the same directory, run:
+   ```bash
+   fastapi run main.py --host 0.0.0.0 --port 8000
+   ```
+
+   The API will be available at `http://localhost:8000`.
+
+## Testing
+
+The project includes a test suite using `pytest` to verify the functionality of the API. The tests cover:
+
+- Case-insensitive partial matching for applicant and street searches.
+- Status filtering for applicant searches.
+- 404 error handling for no results.
+- Nearest food truck searches, including default APPROVED-only behavior, all-statuses inclusion, and distance ordering.
+- Haversine formula correctness (zero distance to self, symmetry, and triangle inequality).
+
+To run the tests locally:
+
+1. Install test dependencies:
+   ```bash
+   pip install pytest
+   ```
+
+2. Run the tests from the project directory:
+   ```bash
+   pytest
+   ```
+
+## Implementation Details
+
+- **Framework**: FastAPI is used for its async support, automatic OpenAPI documentation, and ease of use.
+- **Data Processing**: The dataset is loaded into a Pandas DataFrame at startup. Text columns (`Applicant`, `Status`, `Address`) are normalized to strings with NaNs converted to empty strings. Numeric columns (`Latitude`, `Longitude`) are coerced to floats with invalid values set to NaN.
+- **Coordinate Filtering**: The `/search/nearest` endpoint uses a pre-filtered DataFrame (`df_with_coordinates`) that excludes rows with missing or zero coordinates to optimize performance.
+- **Distance Calculation**: The Haversine formula calculates great-circle distances in miles, ensuring accurate geospatial queries.
+- **Error Handling**: The API returns a 404 status code with a descriptive message when no results are found.
+- **Docker Configuration**: The Dockerfile uses `python:3.9-slim` for a lightweight image, installs necessary dependencies, and sets up FastAPI to run on port 8000.
+
+## Example API Usage
+
+You can interact with the API using tools like `curl`, Postman, or a web browser. Below are example requests:
+
+1. **Search by Applicant**:
+   ```bash
+   curl "http://localhost:8000/search/applicant?name=tasty"
+   ```
+
+2. **Search by Street**:
+   ```bash
+   curl "http://localhost:8000/search/street?street=SAN"
+   ```
+
+3. **Find Nearest Food Trucks**:
+   ```bash
+   curl "http://localhost:8000/search/nearest?latitude=37.7790&longitude=-122.4010&all_statuses=true"
+   ```
+
+You can also access the interactive API documentation at `http://localhost:8000/docs` when the server is running.
+
+## Notes
+
+- The dataset (`Mobile_Food_Facility_Permit.csv`) must be present in the same directory as `main.py` or included in the Docker image.
+- The Haversine formula uses the Earth's radius in miles (3956 miles) to align with common US-based distance measurements.
+- The API is designed to handle case-insensitive queries and gracefully manages missing or invalid data in the dataset.
