@@ -6,7 +6,6 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-
 @pytest.fixture
 def df_mock():
     # Build a DataFrame that exercises case-insensitive matching and NaN handling
@@ -34,6 +33,13 @@ def df_mock():
                 "Longitude": -122.405,
             },
             {
+                "Applicant": "Pending Cart",
+                "Status": "REQUESTED",
+                "Address": "1 Dr Carlton B Goodlett Pl",
+                "Latitude": 37.7810,
+                "Longitude": -122.3990,
+            },
+            {
                 "Applicant": np.nan,   # NaN text fields should be normalized to empty strings
                 "Status": np.nan,
                 "Address": np.nan,
@@ -52,7 +58,7 @@ def app_module(monkeypatch, df_mock):
     # Ensure a clean import if something imported main before
     if "main" in sys.modules:
         del sys.modules["main"]
-    import main
+    import main # noqa: F401
 
     main = importlib.reload(sys.modules["main"])
     return main
@@ -97,3 +103,78 @@ def test_search_by_street_not_found_404(client):
     resp = client.get("/search/street", params={"street": "ZZZ"})
     assert resp.status_code == 404
     assert resp.json()["detail"] == "No matching addresses found"
+
+def test_nearest_defaults_to_approved_only_and_orders_by_distance(client):
+    # Reference point near "Tasty Truck" should list it first when filtering to approve
+    resp = client.get("/search/nearest", params={"latitude": 37.7790, "longitude": -122.4010})
+    assert resp.status_code == 200
+    data = resp.json()
+    # Only approved entries should be present by default
+    statuses = {row["Status"].lower() for row in data}
+    assert statuses <= {"approved"}
+    # Nearest should be Tasty Truck for this reference point
+    assert data[0]["Applicant"] == "Tasty Truck"
+    # Limit to at most 5 entries
+    assert len(data) <= 5
+
+
+def test_nearest_with_all_statuses_includes_non_approved(client):
+    # With all_statuses=True, entries like "Pending Cart" (REQUESTED) with valid coords should be included
+    resp = client.get(
+        "/search/nearest",
+        params={"latitude": 37.7790, "longitude": -122.4010, "all_statuses": "true"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    applicants = {row["Applicant"] for row in data}
+    assert "Pending Cart" in applicants
+    assert "Tasty Truck" in applicants
+
+
+def test_nearest_returns_404_when_no_approved_with_valid_coords(monkeypatch):
+    # Build a dataset with valid coords but no APPROVED rows to trigger 404 in default mode
+    df_no_approved = pd.DataFrame(
+        [
+            {"Applicant": "Only Pending", "Status": "REQUESTED", "Address": "A", "Latitude": 37.78, "Longitude": -122.40},
+            {"Applicant": "Only Denied", "Status": "DENIED", "Address": "B", "Latitude": 37.77, "Longitude": -122.41},
+        ]
+    )
+
+    # Build a fresh client with this dataset
+    monkeypatch.setattr(pd, "read_csv", lambda *_a, **_k: df_no_approved)
+    if "main" in sys.modules:
+        del sys.modules["main"]
+    import main as _main  # noqa: F401
+    _main = importlib.reload(sys.modules["main"])
+    client = TestClient(_main.app)
+
+    # Default (approved-only) should yield 404
+    resp = client.get("/search/nearest", params={"latitude": 37.779, "longitude": -122.401})
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "No food trucks found with valid coordinates"
+
+    # But if all_statuses=True, it should return the nearest non-approved entries
+    resp2 = client.get(
+        "/search/nearest",
+        params={"latitude": 37.779, "longitude": -122.401, "all_statuses": "true"},
+    )
+    assert resp2.status_code == 200
+    assert len(resp2.json()) > 0
+
+
+def test_haversine_zero_and_symmetry(app_module):
+    # Distance to self is zero
+    d0 = app_module.haversine(37.78, -122.40, 37.78, -122.40)
+    assert d0 == 0
+
+    # Symmetry: d(A,B) == d(B,A)
+    a = (37.7801, -122.401)
+    b = (37.7650, -122.405)
+    d_ab = app_module.haversine(a[0], a[1], b[0], b[1])
+    d_ba = app_module.haversine(b[0], b[1], a[0], a[1])
+    assert pytest.approx(d_ab, rel=1e-9) == d_ba
+
+    # Triangle inequality (weak check): distance to a farther point should be larger
+    c = (37.7000, -122.5100)  # farther away
+    d_ac = app_module.haversine(a[0], a[1], c[0], c[1])
+    assert d_ac > d_ab
